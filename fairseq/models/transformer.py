@@ -542,6 +542,8 @@ class TransformerEncoderLayer(nn.Module):
         self.fc4 = Linear(args.encoder_ffn_embed_dim // 2, self.embed_dim)
         self.second_layer_norm = LayerNorm(self.embed_dim)
 
+        self.coef = 1.0
+
     def upgrade_state_dict_named(self, state_dict, name):
         """
         Rename layer norm states from `...layer_norms.0.weight` to
@@ -579,7 +581,7 @@ class TransformerEncoderLayer(nn.Module):
         x = F.dropout(x, p=self.activation_dropout, training=self.training)
         x = self.fc2(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = residual + 0.5 * x
+        x = residual + self.coef * x
         x = self.maybe_layer_norm(self.first_layer_norm, x, after=True)
 
         residual = x
@@ -595,7 +597,7 @@ class TransformerEncoderLayer(nn.Module):
         x = F.dropout(x, p=self.activation_dropout, training=self.training)
         x = self.fc4(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = residual + 0.5 * x
+        x = residual + self.coef * x
         x = self.maybe_layer_norm(self.second_layer_norm, x, after=True)
         return x
 
@@ -673,6 +675,8 @@ class TransformerDecoderLayer(nn.Module):
         self.fc4 = Linear(args.decoder_ffn_embed_dim // 2, self.embed_dim)
         self.second_layer_norm = LayerNorm(self.embed_dim, export=export)
 
+        self.coef = 1.0
+
         self.need_attn = True
 
         self.onnx_trace = False
@@ -706,7 +710,7 @@ class TransformerDecoderLayer(nn.Module):
         x = F.dropout(x, p=self.activation_dropout, training=self.training)
         x = self.fc2(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = residual + 0.5 * x
+        x = residual + self.coef * x
         x = self.maybe_layer_norm(self.first_layer_norm, x, after=True)
 
         residual = x
@@ -758,7 +762,7 @@ class TransformerDecoderLayer(nn.Module):
         x = F.dropout(x, p=self.activation_dropout, training=self.training)
         x = self.fc4(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = residual + 0.5 * x
+        x = residual + self.coef * x
         x = self.maybe_layer_norm(self.second_layer_norm, x, after=True)
 
         if self.onnx_trace and incremental_state is not None:
