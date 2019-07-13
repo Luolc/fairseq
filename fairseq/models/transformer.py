@@ -207,7 +207,7 @@ class TransformerEncoder(FairseqEncoder):
             TransformerEncoderLayer(i, args)
             for i in range(args.encoder_layers)
         ])
-        self.final_projection = Linear(args.encoder_ffn_embed_dim, self.embed_dim)
+        self.final_projection = Linear(args.encoder_ffn_embed_dim, args.encoder_embed_dim)
 
         if args.encoder_normalize_before:
             self.layer_norm = LayerNorm(embed_dim)
