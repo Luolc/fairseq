@@ -204,9 +204,10 @@ class TransformerEncoder(FairseqEncoder):
 
         self.layers = nn.ModuleList([])
         self.layers.extend([
-            TransformerEncoderLayer(args)
+            TransformerEncoderLayer(i, args)
             for i in range(args.encoder_layers)
         ])
+        self.final_projection = Linear(args.encoder_ffn_embed_dim, self.embed_dim)
 
         if args.encoder_normalize_before:
             self.layer_norm = LayerNorm(embed_dim)
@@ -245,6 +246,8 @@ class TransformerEncoder(FairseqEncoder):
         # encoder layers
         for layer in self.layers:
             x = layer(x, encoder_padding_mask)
+
+        x = self.final_projection(x)
 
         if self.layer_norm:
             x = self.layer_norm(x)
@@ -515,8 +518,9 @@ class TransformerEncoderLayer(nn.Module):
         args (argparse.Namespace): parsed command-line arguments
     """
 
-    def __init__(self, args):
+    def __init__(self, index, args):
         super().__init__()
+        self.index = index
         self.embed_dim = args.encoder_embed_dim
         self.self_attn = MultiheadAttention(
             self.embed_dim, args.encoder_attention_heads,
@@ -534,7 +538,8 @@ class TransformerEncoderLayer(nn.Module):
         self.normalize_before = args.encoder_normalize_before
         self.fc1 = Linear(self.embed_dim, args.encoder_ffn_embed_dim)
         self.fc2 = Linear(args.encoder_ffn_embed_dim, self.embed_dim)
-        self.final_layer_norm = LayerNorm(self.embed_dim)
+        self.first_layer_norm = LayerNorm(self.embed_dim)
+        self.second_layer_norm = LayerNorm(args.encoder_ffn_embed_dim)
 
     def upgrade_state_dict_named(self, state_dict, name):
         """
@@ -566,20 +571,23 @@ class TransformerEncoderLayer(nn.Module):
             encoded output of shape `(seq_len, batch, embed_dim)`
         """
         residual = x
-        x = self.maybe_layer_norm(self.self_attn_layer_norm, x, before=True)
+
+        if self.index > 0:
+            x = self.first_layer_norm(self.fc2(x))
+            x = self.activation_fn(x)
+            x = F.dropout(x, p=self.activation_dropout, training=self.training)
+
+        x = self.self_attn_layer_norm(x)
         x, _ = self.self_attn(query=x, key=x, value=x, key_padding_mask=encoder_padding_mask)
         x = F.dropout(x, p=self.dropout, training=self.training)
-        x = residual + x
-        x = self.maybe_layer_norm(self.self_attn_layer_norm, x, after=True)
 
-        residual = x
-        x = self.maybe_layer_norm(self.final_layer_norm, x, before=True)
-        x = self.activation_fn(self.fc1(x))
+        x = self.second_layer_norm(self.fc1(x))
+        x = self.activation_fn(x)
         x = F.dropout(x, p=self.activation_dropout, training=self.training)
-        x = self.fc2(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
-        x = residual + x
-        x = self.maybe_layer_norm(self.final_layer_norm, x, after=True)
+
+        if self.index > 0:
+            x = residual + x
+
         return x
 
     def maybe_layer_norm(self, layer_norm, x, before=False, after=False):
