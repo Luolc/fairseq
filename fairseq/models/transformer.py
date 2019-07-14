@@ -582,12 +582,12 @@ class TransformerEncoderLayer(nn.Module):
         x = F.dropout(x, p=self.dropout, training=self.training)
 
         x = self.second_layer_norm(self.fc1(x))
-        x = self.activation_fn(x)
-        x = F.dropout(x, p=self.activation_dropout, training=self.training)
 
         if self.index > 0:
             x = residual + x
 
+        x = self.activation_fn(x)
+        x = F.dropout(x, self.activation_dropout, training=self.training)
         return x
 
     def maybe_layer_norm(self, layer_norm, x, before=False, after=False):
