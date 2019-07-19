@@ -541,8 +541,8 @@ class TransformerEncoderLayer(nn.Module):
         self.normalize_before = args.encoder_normalize_before
         self.fc1 = Linear(self.embed_dim, args.encoder_ffn_embed_dim)
         self.fc2 = Linear(args.encoder_ffn_embed_dim, self.embed_dim)
-        self.first_layer_norm = LayerNorm(self.embed_dim)
-        self.second_layer_norm = LayerNorm(args.encoder_ffn_embed_dim)
+        self.first_layer_norm = LayerNorm(args.encoder_ffn_embed_dim)
+        self.second_layer_norm = LayerNorm(self.embed_dim)
 
     def upgrade_state_dict_named(self, state_dict, name):
         """
