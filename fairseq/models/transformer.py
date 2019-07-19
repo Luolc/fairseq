@@ -207,6 +207,7 @@ class TransformerEncoder(FairseqEncoder):
             TransformerEncoderLayer(i, args)
             for i in range(args.encoder_layers)
         ])
+        self.init_projection = Linear(args.encoder_embed_dim, args.encoder_ffn_embed_dim)
         self.final_projection = Linear(args.encoder_ffn_embed_dim, args.encoder_embed_dim)
 
         if args.encoder_normalize_before:
@@ -242,6 +243,8 @@ class TransformerEncoder(FairseqEncoder):
         encoder_padding_mask = src_tokens.eq(self.padding_idx)
         if not encoder_padding_mask.any():
             encoder_padding_mask = None
+
+        x = self.init_projection(x)
 
         # encoder layers
         for layer in self.layers:
@@ -572,22 +575,22 @@ class TransformerEncoderLayer(nn.Module):
         """
         residual = x
 
-        if self.index > 0:
-            x = self.first_layer_norm(self.fc2(x))
-            x = self.activation_fn(x)
-            x = F.dropout(x, p=self.activation_dropout, training=self.training)
+        x = self.first_layer_norm(x)
+        x = self.activation_fn(x)
+        x = F.dropout(x, p=self.activation_dropout, training=self.training)
+        x = self.fc2(x)
 
         x = self.self_attn_layer_norm(x)
         x, _ = self.self_attn(query=x, key=x, value=x, key_padding_mask=encoder_padding_mask)
         x = F.dropout(x, p=self.dropout, training=self.training)
 
-        x = self.second_layer_norm(self.fc1(x))
-
-        if self.index > 0:
-            x = residual + x
-
+        x = self.second_layer_norm(x)
         x = self.activation_fn(x)
-        x = F.dropout(x, self.activation_dropout, training=self.training)
+        x = F.dropout(x, p=self.activation_dropout, training=self.training)
+        x = self.fc1(x)
+
+        x = residual + x
+
         return x
 
     def maybe_layer_norm(self, layer_norm, x, before=False, after=False):
