@@ -536,6 +536,10 @@ class TransformerEncoderLayer(nn.Module):
         self.normalize_before = args.encoder_normalize_before
         self.num_ffn = args.num_ffn
 
+        # a factor variable
+        self.factor = nn.Parameter(torch.zeros(self.num_ffn))
+        nn.init.uniform(self.factor)
+
         # deeper FFN
         self.ffn = nn.ModuleList([
             nn.Sequential(
@@ -590,12 +594,30 @@ class TransformerEncoderLayer(nn.Module):
         x = residual + x
         x = self.maybe_layer_norm(self.self_attn_layer_norm, x, after=True)
 
+        # original
+        # for i in range(self.num_ffn):
+        #     residual = x
+        #     x = self.maybe_layer_norm(self.ffn_layer_norms[i], x, before=True)
+        #     x = self.ffn[i](x)
+        #     x = residual + self.ffn_coef * x
+        #     x = self.maybe_layer_norm(self.ffn_layer_norms[i], x, after=True)
+        #
+
+        # linear multi-step   u_{n+1} = (1- k _n) u_n + k_n * u_{n-1} + f( u_n)
+        buffer = [x]
         for i in range(self.num_ffn):
-            residual = x
-            x = self.maybe_layer_norm(self.ffn_layer_norms[i], x, before=True)
-            x = self.ffn[i](x)
-            x = residual + self.ffn_coef * x
-            x = self.maybe_layer_norm(self.ffn_layer_norms[i], x, after=True)
+            if i > 0:  # not the first layer
+                residual = (1 - F.sigmoid(self.factor[i])) * x + F.sigmoid(self.factor[i]) * buffer[i-1]
+            else:  # first layer, simply set the residual to x
+                residual = x
+            x = self.maybe_layer_norm(self.self_attn_layer_norm, x, before=True)
+            x, _ = self.self_attn(query=x, key=x, value=x, key_padding_mask=encoder_padding_mask)
+            x = F.dropout(x, p=self.dropout, training=self.training)
+            x = residual + x
+            x = self.maybe_layer_norm(self.self_attn_layer_norm, x, after=True)
+            buffer.append(x)
+
+
 
         return x
 
@@ -667,6 +689,11 @@ class TransformerDecoderLayer(nn.Module):
 
         # deeper FFN
         self.num_ffn = args.num_ffn
+
+        # a factor variable
+        self.factor = nn.Parameter(torch.zeros(self.num_ffn))
+        nn.init.uniform(self.factor)
+
         self.ffn = nn.ModuleList([
             nn.Sequential(
                 Linear(self.embed_dim, args.decoder_ffn_embed_dim // self.num_ffn),
@@ -752,12 +779,24 @@ class TransformerDecoderLayer(nn.Module):
             x = residual + x
             x = self.maybe_layer_norm(self.encoder_attn_layer_norm, x, after=True)
 
+        # for i in range(self.num_ffn):
+        #     residual = x
+        #     x = self.maybe_layer_norm(self.ffn_layer_norms[i], x, before=True)
+        #     x = self.ffn[i](x)
+        #     x = residual + self.ffn_coef * x
+        #     x = self.maybe_layer_norm(self.ffn_layer_norms[i], x, before=True)
+            # linear multi-step   u_{n+1} = (1- k _n) u_n + k_n * u_{n-1} + f( u_n)
+        buffer = [x]
         for i in range(self.num_ffn):
-            residual = x
+            if i > 0:  # not the first layer
+                residual = (1 - F.sigmoid(self.factor[i])) * x + F.sigmoid(self.factor[i])* buffer[i - 1]
+            else:  # first layer, simply set the residual to x
+                residual = x
             x = self.maybe_layer_norm(self.ffn_layer_norms[i], x, before=True)
             x = self.ffn[i](x)
             x = residual + self.ffn_coef * x
             x = self.maybe_layer_norm(self.ffn_layer_norms[i], x, before=True)
+            buffer.append(x)
 
         if self.onnx_trace and incremental_state is not None:
             saved_state = self.self_attn._get_input_buffer(incremental_state)
@@ -845,6 +884,11 @@ def transformer_iwslt_de_en_v2(args):
     args.activation_dropout = getattr(args, 'activation_dropout', 0.1)
     transformer_iwslt_de_en(args)
 
+@register_model_architecture('transformer', 'deeper_iwslt_de_en_v4')
+def deeper_iwslt_de_en_v2(args):
+    args.num_ffn = getattr(args, 'num_ffn', 4)
+    transformer_iwslt_de_en_v2(args)
+
 
 @register_model_architecture('transformer', 'deeper_iwslt_de_en_v2')
 def deeper_iwslt_de_en_v2(args):
@@ -891,3 +935,4 @@ def transformer_wmt_en_de_big_t2t(args):
     args.attention_dropout = getattr(args, 'attention_dropout', 0.1)
     args.activation_dropout = getattr(args, 'activation_dropout', 0.1)
     transformer_vaswani_wmt_en_de_big(args)
+
